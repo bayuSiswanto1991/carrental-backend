@@ -4,6 +4,16 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/userModel");
 const authUser = require("../middleware/authUser");
+const multer = require("multer");
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
+const ImageKit = require("imagekit");
+
+const imageKit = new ImageKit({
+  publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
+  privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
+  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT,
+});
 
 // ─────────────────────────────────────
 // REGISTER
@@ -120,5 +130,40 @@ router.put("/upgrade", authUser, async (req, res) => {
     res.json({ success: false, message: err.message });
   }
 });
+
+// ─────────────────────────────────────
+// UPDATE PROFILE
+// PUT /api/auth/profile
+// ─────────────────────────────────────
+router.put(
+  "/profile",
+  authUser,
+  upload.single("image"), // ← middleware 1
+  async (req, res) => {
+    // ← middleware 2 (handler)
+    try {
+      const { name } = req.body;
+      let imageUrl = undefined;
+
+      if (req.file) {
+        const uploadResponse = await imageKit.upload({
+          file: req.file.buffer,
+          fileName: `user_${Date.now()}`,
+          folder: "/users",
+        });
+        imageUrl = uploadResponse.url;
+      }
+
+      const updateData = { name };
+      if (imageUrl) updateData.image = imageUrl;
+
+      const user = await User.findByIdAndUpdate(req.userId, updateData, { new: true }).select("-password");
+
+      res.json({ success: true, user });
+    } catch (err) {
+      res.json({ success: false, message: err.message });
+    }
+  },
+);
 
 module.exports = router;
